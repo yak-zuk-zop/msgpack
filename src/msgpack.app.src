@@ -1,0 +1,16 @@
+{application, msgpack, [
+    {description, "MessagePack serializer/deserializer"},
+    {vsn, "0.9.0"},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {modules, [
+        msgpack
+    ]},
+    {registered, []},
+    {env,[]},
+    {maintainers, ["Yuri Bukhalenkov"]},
+    {licenses, ["ISC"]},
+    {links, [{"Github", "https://github.com/yak-zuk-zop/msgpack"}]}
+]}.

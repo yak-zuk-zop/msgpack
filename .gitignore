@@ -1,0 +1,9 @@
+.eunit
+ebin/*.app
+*.beam
+*~
+deps
+*.so
+_build
+.rebar3
+.rebar
