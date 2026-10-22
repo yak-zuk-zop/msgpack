@@ -13,7 +13,7 @@
 ]).
 
 -record(state, {
-    wait :: value_type() | undefined,
+    wait :: [value_type()] | {value, msgpack:msgpack_term()},
     options :: msgpack:opt_record(),
     buffer = <<>> :: binary()
 }).
@@ -22,29 +22,53 @@
 -type bit_size() :: 32 | 64.
 -type value() :: {msgpack:msgpack_term(), binary()}.
 -type value_type() ::
+    undefined |
     {uint | int | float, bit_size()} |
     {raw | string, pos_integer()} |
     {array, pos_integer(), list()} |
-    {map, pos_integer(), msgpack:msgpack_map()}.
--type expected() :: {wait, value_type(), binary()}.
+    {map, pos_integer(), msgpack:msgpack_map() | {msgpack:msgpack_term(), msgpack:msgpack_map()}}.
+-type expected() :: {wait, [value_type()], binary()}.
 -type result() :: value() | expected().
 -type decoder() :: fun((binary(), msgpack:opt_record()) -> result()).
 
 %%-- API Implementation -------------------------------------------------------
 
 -spec decode_start(binary(), msgpack:opt_record()) ->
-    {msgpack:msgpack_term(), binary()} | {continue, state()} | {error, any()}.
+    value() | {continue, state()} | {error, any()}.
 decode_start(Bin, Opts) ->
-    decode_continue(Bin, #state{options = Opts}).
+    decode_with(Bin, fun decode/2, Opts).
 
 -spec decode_continue(binary(), state()) ->
-    {msgpack:msgpack_term(), binary()} | {continue, state()} | {error, any()}.
-decode_continue(Bin, State = #state{wait = Wait, buffer = Buff, options = Opts}) ->
+    value() | {continue, state()} | {error, any()}.
+decode_continue(Bin, #state{wait = {value, Term}}) ->
+    {Term, Bin};
+decode_continue(Bin, State = #state{wait = [Wait | WaitOthers], buffer = Buff, options = Opts}) ->
     Decoder = get_decoder(Wait),
-    try Decoder(<<Buff/binary, Bin/binary>>, Opts) of
+    case decode_with(<<Buff/binary, Bin/binary>>, Decoder, Opts) of
+        {error, _} = Err ->
+            Err;
+        {continue, #state{wait = Term} = S} ->
+            {continue, S#state{
+                wait = Term ++ WaitOthers
+            }};
+        {Term, Rest} ->
+            StateUpd = State#state{
+                wait = update_wait(WaitOthers, Term),
+                buffer = <<>>
+            },
+            decode_continue(Rest, StateUpd)
+    end.
+
+%%-- internals ----------------------------------------------------------------
+
+-spec decode_with(binary(), decoder(), msgpack:opt_record()) ->
+    value() | {continue, state()} | {error, any()}.
+decode_with(Bin, Decoder, Opts) ->
+    try Decoder(Bin, Opts) of
         {wait, Term, Rest} ->
-            {continue, State#state{
+            {continue, #state{
                 wait = Term,
+                options = Opts,
                 buffer = Rest
             }};
         Else ->
@@ -54,7 +78,7 @@ decode_continue(Bin, State = #state{wait = Wait, buffer = Buff, options = Opts})
             {error, Exception}
     end.
 
-%%-- internals ----------------------------------------------------------------
+%%
 
 -spec decode(binary(), msgpack:opt_record()) -> result().
 
@@ -160,7 +184,7 @@ decode(<<16#C1, _R/binary>>, _) ->
     throw({badarg, 16#C1});
 
 decode(<<Bin/binary>>, _) ->
-    {wait, undefined, Bin}.
+    {wait, [undefined], Bin}.
 
 %%
 
@@ -170,7 +194,7 @@ decode_uint(N, Bin, _) ->
         <<V:N/big-unsigned, Rest/binary>> ->
             {V, Rest};
         _ ->
-            {wait, {uint, N}, Bin}
+            {wait, [{uint, N}], Bin}
     end.
 
 -spec decode_int(bit_size(), binary(), msgpack:opt_record()) -> result().
@@ -179,7 +203,7 @@ decode_int(N, Bin, _) ->
         <<V:N/big-signed, Rest/binary>> ->
             {V, Rest};
         _ ->
-            {wait, {int, N}, Bin}
+            {wait, [{int, N}], Bin}
     end.
 
 -spec decode_float(bit_size(), binary(), msgpack:opt_record()) -> result().
@@ -200,7 +224,7 @@ decode_float(N, Bin, _) ->
         <<_:1, 2#11111111111:11, _:52, Rest/binary>> ->
             {nan, Rest};
         _ ->
-            {wait, {float, N}, Bin}
+            {wait, [{float, N}], Bin}
      end.
 
 -spec decode_raw(pos_integer(), binary(), msgpack:opt_record()) -> result().
@@ -209,7 +233,7 @@ decode_raw(L, Bin, Opts) ->
         <<V:L/binary, Rest/binary>> ->
             {msgpack_utils:maybe_atom(V, Opts), Rest};
         _ ->
-            {wait, {raw, L}, Bin}
+            {wait, [{raw, L}], Bin}
     end.
 
 -spec decode_string(pos_integer(), binary(), msgpack:opt_record()) -> result().
@@ -218,59 +242,77 @@ decode_string(L, Bin, #options{string = Meth, validate_string = Validate}) ->
         <<V:L/binary, Rest/binary>> ->
             {msgpack_utils:string_as(Meth, V, Validate), Rest};
         _ ->
-            {wait, {string, L}, Bin}
+            {wait, [{string, L}], Bin}
     end.
 
 -spec decode_array(binary(), non_neg_integer(), list(), msgpack:opt_record()) -> result().
 decode_array(<<Bin/binary>>, 0, Acc, _) ->
     {lists:reverse(Acc), Bin};
 decode_array(<<>> = Bin, L, Acc, _) ->
-    {wait, {array, L, Acc}, Bin};
+    {wait, [{array, L, Acc}], Bin};
 decode_array(<<Bin/binary>>, L, Acc, Opt) ->
     case decode(Bin, Opt) of
         {Term, Rest} ->
             decode_array(Rest, L - 1, [Term | Acc], Opt);
-        {wait, _, _} ->
-            {wait, {array, L, Acc}, Bin}
+        {wait, Wait, Rest} ->
+            {wait, Wait ++ [{array, L, Acc}], Rest}
     end.
 
 -spec decode_map(binary(), non_neg_integer(), map(), msgpack:opt_record()) -> result(). 
-decode_map(<<Bin/binary>>, 0, Map, _) ->
+decode_map(Bin, 0, Map, _) ->
     {Map, Bin};
 decode_map(<<>> = Bin, L, Map, _) ->
-    {wait, {map, L, Map}, Bin};
-decode_map(<<Bin/binary>>, L, Map, Opts) ->
+    {wait, [{map, L, Map}], Bin};
+decode_map(Bin, L, Map, Opts) when is_map(Map) ->
     case decode(Bin, Opts) of
         {Key, Rest} ->
             case decode(Rest, Opts) of
                 {Value, Rest2} ->
                     decode_map(Rest2, L - 1, Map#{Key => Value}, Opts);
-                {wait, _, _} ->
-                    {wait, {map, L, Map}, Bin}
+                {wait, Wait, Rest3} ->
+                    {wait, Wait ++ [{map, L, {Key, Map}}], Rest3}
             end;
-        {wait, _, _} ->
-            {wait, {map, L, Map}, Bin}
-    end.
+        {wait, Wait, Rest} ->
+            {wait, Wait ++ [{map, L, Map}], Rest}
+    end;
+decode_map(Bin, L, {Key, Map}, Opts) ->
+    case decode(Bin, Opts) of
+        {Value, Rest} ->
+            decode_map(Rest, L - 1, Map#{Key => Value}, Opts);
+        {wait, Wait, Rest} ->
+            {wait, Wait ++ [{map, L, {Key, Map}}], Rest}
+    end;
+decode_map(Bin, L, {K, V, Map}, Opts) ->
+    decode_map(Bin, L - 1, Map#{K => V}, Opts).
 
 -spec decode_jsx(binary(), non_neg_integer(), proplists:proplist(), msgpack:opt_record()) -> result().
-decode_jsx(<<Bin/binary>>, 0, [], _) ->
+decode_jsx(Bin, 0, [], _) ->
     {[{}], Bin};
-decode_jsx(<<Bin/binary>>, 0, Map, _) ->
+decode_jsx(Bin, 0, Map, _) ->
     {lists:reverse(Map), Bin};
 decode_jsx(<<>> = Bin, L, Map, _) ->
-    {wait, {map, L, Map}, Bin};
-decode_jsx(<<Bin/binary>>, L, Map, Opts) ->
+    {wait, [{map, L, Map}], Bin};
+decode_jsx(Bin, L, Map, Opts) when is_list(Map) ->
     case decode(Bin, Opts) of
         {Key, Rest} ->
             case decode(Rest, Opts) of
                 {Value, Rest2} ->
                     decode_jsx(Rest2, L - 1, [{Key, Value} | Map], Opts);
-                {wait, _, _} ->
-                    {wait, {map, L, Map}, Bin}
+                {wait, Wait, Rest3} ->
+                    {wait, Wait ++ [{map, L, {Key, Map}}], Rest3}
             end;
-        {wait, _, _} ->
-            {wait, {map, L, Map}, Bin}
-    end.
+        {wait, Wait, Rest} ->
+            {wait, Wait ++ [{map, L, Map}], Rest}
+    end;
+decode_jsx(Bin, L, {Key, Map}, Opts) ->
+    case decode(Bin, Opts) of
+        {Value, Rest} ->
+            decode_jsx(Rest, L - 1, [{Key, Value} | Map], Opts);
+        {wait, Wait, Rest} ->
+            {wait, Wait ++ [{map, L, Map}], Rest}
+    end;
+decode_jsx(Bin, L, {K, V, Map}, Opts) ->
+    decode_jsx(Bin, L - 1, [{K, V} | Map], Opts).
 
 %%
 
@@ -308,6 +350,15 @@ get_decoder({map, L, Map}) ->
         (Bin, Opts = #options{map_format = jsx}) ->
             decode_jsx(Bin, L, Map, Opts)
     end.
+
+update_wait([{array, L, Arr} | Rest], Term) ->
+    [{array, L - 1, [Term | Arr]} | Rest];
+update_wait([{map, L, {Key, Map}} | Rest], Term) ->
+    [{map, L, {Key, Term, Map}} | Rest];
+update_wait([{map, L, Map} | Rest], Term) ->
+    [{map, L, {Term, Map}} | Rest];
+update_wait([], Term) ->
+    {value, Term}.
 
 %%
 

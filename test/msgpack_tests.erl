@@ -245,23 +245,10 @@ enable_str_test() ->
 
 %%
 
-test_incomplete(Len, Term, OrigBin, Len) ->
-    ?assertEqual({ok, Term}, unpack(OrigBin));
-test_incomplete(I, Term, OrigBin, Len) when I < Len ->
-    <<Bin:I/binary, _/binary>> = OrigBin,
-    ?assertEqual({error, incomplete}, unpack(Bin)),
-    test_incomplete(I + 1, Term, OrigBin, Len).
-
 incomplete_test() ->
     Term = test_utils:test_data(),
     Bin = pack(Term),
     test_incomplete(0, Term, Bin, byte_size(Bin)).
-
-test_continue(Term, <<_:8>> = Bin, State) ->
-    ?assertEqual({Term, <<>>}, msgpack:decode_continue(Bin, State));
-test_continue(Term, <<Bin:1/binary, Rest/binary>>, State0) ->
-    {continue, State} = msgpack:decode_continue(Bin, State0),
-    test_continue(Term, Rest, State).
 
 continue_test() ->
     Term = test_utils:test_data(),
@@ -277,6 +264,21 @@ unpack_stream_test() ->
     ok.
 
 %%-- internals ----------------------------------------------------------------
+
+test_incomplete(Len, Term, OrigBin, Len) ->
+    ?assertEqual({ok, Term}, unpack(OrigBin));
+test_incomplete(I, Term, OrigBin, Len) when I < Len ->
+    <<Bin:I/binary, _/binary>> = OrigBin,
+    ?assertEqual({error, incomplete}, unpack(Bin)),
+    test_incomplete(I + 1, Term, OrigBin, Len).
+
+test_continue(Term, <<_:8>> = Bin, State) ->
+    ?assertEqual({Term, <<>>}, msgpack:decode_continue(Bin, State));
+test_continue(Term, <<Bin:1/binary, Rest/binary>>, State0) ->
+    {continue, State} = msgpack:decode_continue(Bin, State0),
+    test_continue(Term, Rest, State).
+
+%%
 
 dup(Len, S) ->
     lists:duplicate(Len, S).
