@@ -261,7 +261,9 @@ decode_array(<<Bin/binary>>, L, Acc, Opt) ->
 -spec decode_map(binary(), non_neg_integer(), map(), msgpack:opt_record()) -> result(). 
 decode_map(Bin, 0, Map, _) ->
     {Map, Bin};
-decode_map(<<>> = Bin, L, Map, _) when is_map(Map) ->
+decode_map(Bin, L, {K, V, Map}, Opts) ->
+    decode_map(Bin, L - 1, Map#{K => V}, Opts);
+decode_map(<<>> = Bin, L, Map, _) ->
     {wait, [{map, L, Map}], Bin};
 decode_map(Bin, L, Map, Opts) when is_map(Map) ->
     case decode(Bin, Opts) of
@@ -281,16 +283,16 @@ decode_map(Bin, L, {Key, Map}, Opts) ->
             decode_map(Rest, L - 1, Map#{Key => Value}, Opts);
         {wait, Wait, Rest} ->
             {wait, Wait ++ [{map, L, {Key, Map}}], Rest}
-    end;
-decode_map(Bin, L, {K, V, Map}, Opts) ->
-    decode_map(Bin, L - 1, Map#{K => V}, Opts).
+    end.
 
 -spec decode_jsx(binary(), non_neg_integer(), proplists:proplist(), msgpack:opt_record()) -> result().
 decode_jsx(Bin, 0, [], _) ->
     {[{}], Bin};
 decode_jsx(Bin, 0, Map, _) ->
     {lists:reverse(Map), Bin};
-decode_jsx(<<>> = Bin, L, Map, _) when is_list(Map) ->
+decode_jsx(Bin, L, {K, V, Map}, Opts) ->
+    decode_jsx(Bin, L - 1, [{K, V} | Map], Opts);
+decode_jsx(<<>> = Bin, L, Map, _) ->
     {wait, [{map, L, Map}], Bin};
 decode_jsx(Bin, L, Map, Opts) when is_list(Map) ->
     case decode(Bin, Opts) of
@@ -310,9 +312,7 @@ decode_jsx(Bin, L, {Key, Map}, Opts) ->
             decode_jsx(Rest, L - 1, [{Key, Value} | Map], Opts);
         {wait, Wait, Rest} ->
             {wait, Wait ++ [{map, L, Map}], Rest}
-    end;
-decode_jsx(Bin, L, {K, V, Map}, Opts) ->
-    decode_jsx(Bin, L - 1, [{K, V} | Map], Opts).
+    end.
 
 %%
 
