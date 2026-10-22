@@ -13,16 +13,16 @@
 ]).
 
 -record(state, {
-    wait :: [value_type()] | {value, msgpack:msgpack_term()},
+    stack :: [value_type()] | {value, msgpack:msgpack_term()},
     options :: msgpack:opt_record(),
-    buffer = <<>> :: binary()
+    buffer :: binary()
 }).
 
 -type state() :: #state{}.
 -type bit_size() :: 32 | 64.
 -type value() :: {msgpack:msgpack_term(), binary()}.
 -type value_type() ::
-    undefined |
+    incomplete |
     {uint | int | float, bit_size()} |
     {raw | string, pos_integer()} |
     {array, pos_integer(), list()} |
@@ -40,20 +40,20 @@ decode_start(Bin, Opts) ->
 
 -spec decode_continue(binary(), state()) ->
     value() | {continue, state()} | {error, any()}.
-decode_continue(Bin, #state{wait = {value, Term}}) ->
+decode_continue(Bin, #state{stack = {value, Term}}) ->
     {Term, Bin};
-decode_continue(Bin, State = #state{wait = [Wait | WaitOthers], buffer = Buff, options = Opts}) ->
-    Decoder = get_decoder(Wait),
+decode_continue(Bin, State = #state{stack = [Top | Stack], buffer = Buff, options = Opts}) ->
+    Decoder = get_decoder(Top),
     case decode_with(<<Buff/binary, Bin/binary>>, Decoder, Opts) of
         {error, _} = Err ->
             Err;
-        {continue, #state{wait = Term} = S} ->
+        {continue, #state{stack = Term} = S} ->
             {continue, S#state{
-                wait = Term ++ WaitOthers
+                stack = Term ++ Stack
             }};
         {Term, Rest} ->
             StateUpd = State#state{
-                wait = update_wait(WaitOthers, Term),
+                stack = update_stack(Term, Stack),
                 buffer = <<>>
             },
             decode_continue(Rest, StateUpd)
@@ -67,7 +67,7 @@ decode_with(Bin, Decoder, Opts) ->
     try Decoder(Bin, Opts) of
         {wait, Term, Rest} ->
             {continue, #state{
-                wait = Term,
+                stack = Term,
                 options = Opts,
                 buffer = Rest
             }};
@@ -184,7 +184,7 @@ decode(<<16#C1, _R/binary>>, _) ->
     throw({badarg, 16#C1});
 
 decode(<<Bin/binary>>, _) ->
-    {wait, [undefined], Bin}.
+    {wait, [incomplete], Bin}.
 
 %%
 
@@ -246,7 +246,7 @@ decode_string(L, Bin, #options{string = Meth, validate_string = Validate}) ->
     end.
 
 -spec decode_array(binary(), non_neg_integer(), list(), msgpack:opt_record()) -> result().
-decode_array(<<Bin/binary>>, 0, Acc, _) ->
+decode_array(Bin, 0, Acc, _) ->
     {lists:reverse(Acc), Bin};
 decode_array(<<>> = Bin, L, Acc, _) ->
     {wait, [{array, L, Acc}], Bin};
@@ -261,7 +261,7 @@ decode_array(<<Bin/binary>>, L, Acc, Opt) ->
 -spec decode_map(binary(), non_neg_integer(), map(), msgpack:opt_record()) -> result(). 
 decode_map(Bin, 0, Map, _) ->
     {Map, Bin};
-decode_map(<<>> = Bin, L, Map, _) ->
+decode_map(<<>> = Bin, L, Map, _) when is_map(Map) ->
     {wait, [{map, L, Map}], Bin};
 decode_map(Bin, L, Map, Opts) when is_map(Map) ->
     case decode(Bin, Opts) of
@@ -290,7 +290,7 @@ decode_jsx(Bin, 0, [], _) ->
     {[{}], Bin};
 decode_jsx(Bin, 0, Map, _) ->
     {lists:reverse(Map), Bin};
-decode_jsx(<<>> = Bin, L, Map, _) ->
+decode_jsx(<<>> = Bin, L, Map, _) when is_list(Map) ->
     {wait, [{map, L, Map}], Bin};
 decode_jsx(Bin, L, Map, Opts) when is_list(Map) ->
     case decode(Bin, Opts) of
@@ -316,8 +316,8 @@ decode_jsx(Bin, L, {K, V, Map}, Opts) ->
 
 %%
 
--spec get_decoder(undefined | value_type()) -> decoder().
-get_decoder(undefined) ->
+-spec get_decoder(value_type()) -> decoder().
+get_decoder(incomplete) ->
     fun decode/2;
 get_decoder({uint, N}) ->
     fun (Bin, Opts) ->
@@ -351,13 +351,14 @@ get_decoder({map, L, Map}) ->
             decode_jsx(Bin, L, Map, Opts)
     end.
 
-update_wait([{array, L, Arr} | Rest], Term) ->
-    [{array, L - 1, [Term | Arr]} | Rest];
-update_wait([{map, L, {Key, Map}} | Rest], Term) ->
-    [{map, L, {Key, Term, Map}} | Rest];
-update_wait([{map, L, Map} | Rest], Term) ->
-    [{map, L, {Term, Map}} | Rest];
-update_wait([], Term) ->
+-spec update_stack(msgpack:msgpack_term(), [value_type()]) -> [value_type()].
+update_stack(Term, [{array, L, Arr} | Stack]) ->
+    [{array, L - 1, [Term | Arr]} | Stack];
+update_stack(Term, [{map, L, {Key, Map}} | Stack]) ->
+    [{map, L, {Key, Term, Map}} | Stack];
+update_stack(Term, [{map, L, Map} | Stack]) ->
+    [{map, L, {Term, Map}} | Stack];
+update_stack(Term, []) ->
     {value, Term}.
 
 %%
