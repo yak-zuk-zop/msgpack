@@ -11,21 +11,21 @@
 %%-- API Implementation -------------------------------------------------------
 
 -spec maybe_atom(binary(), msgpack:opt_record()) -> binary() | atom().
-maybe_atom(<<Bin/binary>>, #options{allow_atom = Known = [_ | _]}) ->
+maybe_atom(Bin, #options{allow_atom = Known = [_ | _]}) ->
     case lists:member(Bin, Known) of
         true ->
             erlang:binary_to_existing_atom(Bin, utf8);
         false ->
-            Bin
+            binary:copy(Bin)
     end;
-maybe_atom(<<Bin/binary>>, _) ->
-    Bin.
+maybe_atom(Bin, _) ->
+    binary:copy(Bin).
 
 %%
 
 -spec string_as(msgpack:string_method(), binary(), boolean()) -> binary() | string() | no_return().
 string_as(as_binary, Bin, false) ->
-    Bin;
+    binary:copy(Bin);
 string_as(as_list, Bin, false) ->
     binary_to_list(Bin);
 string_as(Meth, Bin, true) ->
