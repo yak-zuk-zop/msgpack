@@ -81,8 +81,8 @@ unpack(Bin, Opts) ->
             E;
         {Term, <<>>} ->
             {ok, Term};
-        {_, Binary} when is_binary(Binary) andalso byte_size(Binary) > 0 ->
-            {error, not_just_binary}
+        {_, <<_, _/binary>>} ->
+            {error, trailing_data}
     end.
 
 -spec unpack_stream(binary()) ->
