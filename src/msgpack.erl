@@ -68,8 +68,8 @@ pack(Term, Opts) ->
     end.
 
 -spec unpack(binary()) -> {ok, msgpack_term()}
-                        | {error, not_just_binary} % a term deserilized, but binary remains
-                        | {error, incomplete}      % too few binary to deserialize complete binary
+                        | {error, trailing_data} % a term deserilized, but binary remains
+                        | {error, incomplete}    % too few binary to deserialize complete binary
                         | {error, {badarg, term()}}.
 unpack(Bin) ->
     unpack(Bin, []).
