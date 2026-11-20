@@ -9,6 +9,7 @@
 
 %%-- API Implementation -------------------------------------------------------
 
+-spec test_data() -> msgpack:msgpack_term().
 test_data() ->
     [
         true, false, null,
@@ -20,6 +21,7 @@ test_data() ->
         [0, 42, <<"sum">>, false, [1, 2, 0.23]], [1, 42, null, [3]]
     ].
 
+-spec test_map(msgpack:map_type(), non_neg_integer()) -> msgpack:msgpack_map().
 test_map(jsx, 0) ->
     [{}];
 test_map(map, 0) ->
@@ -31,6 +33,8 @@ test_map(map, N) ->
 
 %%
 
+-spec str(msgpack:string_method(), Str) -> Str when
+    Str :: list() | binary().
 str(as_list, S) when is_list(S) ->
     S;
 str(as_binary, S) when is_list(S) ->

@@ -5,8 +5,11 @@
 -define(PCNT, 5).
 -define(CNT, 10000).
 
+-spec test() -> _.
+
 %%-- tests --------------------------------------------------------------------
 
+-spec map_benchmark_test_() -> _.
 map_benchmark_test_() ->
     [{"map benchmark", [fun() ->
         Opts = [{map_format, Map}],
@@ -16,12 +19,14 @@ map_benchmark_test_() ->
         ?debugFmt("for ~p KB test data(~p).", [byte_size(S) div 1024, Map])
     end || Map <- [map, jsx]]}].
 
+-spec t2b_b2t_benchmark_test() -> _.
 t2b_b2t_benchmark_test() ->
     Data = lists:duplicate(?CNT, test_utils:test_data()),
     S = ?debugTime("\tserialize", term_to_binary(Data)),
     Data = ?debugTime("\tdeserialize", binary_to_term(S)),
     ?debugFmt("for ~p KB test data(t2b/b2t).", [byte_size(S) div 1024]).
 
+-spec benchmark_test_() -> _.
 benchmark_test_() ->
     [
         {timeout, 600, ?_assertEqual(ok, multirunner("jsx",

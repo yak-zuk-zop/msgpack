@@ -15,11 +15,15 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-spec test() -> _.
+
 %%-- tests --------------------------------------------------------------------
 
+-spec basic_test_() -> _.
 basic_test_() ->
     [?_assertEqual({ok, T}, unpack(pack(T))) || T <- test_utils:test_data()].
 
+-spec int_test_() -> _.
 int_test_() ->
     %% [{Int, ExpectedPackedSize}]
     Tests = [
@@ -40,6 +44,7 @@ int_test_() ->
         ?assertEqual({ok, Term}, unpack(Binary))
     end} || {Term, ExpectedSize} <- Tests].
 
+-spec float_unpacking_test_() -> _.
 float_unpacking_test_() ->
    [
         %% float 32
@@ -53,6 +58,7 @@ float_unpacking_test_() ->
         ?_assertEqual({ok, negative_infinity}, unpack(<<16#CB, 16#FF, 16#F0, 16#00, 16#00, 16#00, 16#00, 16#00, 16#00>>))
     ].
 
+-spec atom_test_() -> _.
 atom_test_() ->
     [
         {"allow_atom pack/[atom]", [
@@ -71,6 +77,7 @@ atom_test_() ->
         end}
     ].
 
+-spec array_test_() -> _.
 array_test_() ->
     [
         {"array with various length", [fun() ->
@@ -79,6 +86,7 @@ array_test_() ->
         end || N <- [0, 16, 16#010000]]}
     ].
 
+-spec map_test_() -> _.
 map_test_() ->
     [
         {"map with various type and size", [fun() ->
@@ -115,6 +123,7 @@ map_test_() ->
         end}
     ].
 
+-spec error_test_() -> _.
 error_test_() ->
     [
         {"badarg tuple", fun() ->
@@ -138,6 +147,7 @@ error_test_() ->
         }
     ].
 
+-spec binary_test_() -> _.
 binary_test_() ->
     [
         {"0 byte", fun() ->
@@ -145,6 +155,7 @@ binary_test_() ->
         end}
     ].
 
+-spec old_spec_test_() -> _.
 old_spec_test_() ->
     Opt = [{spec, old}],
     [
@@ -158,6 +169,7 @@ old_spec_test_() ->
         ]}
     ].
 
+-spec new_spec_string_test_() -> _.
 new_spec_string_test_() ->
     Opts = [{spec, new}],
     AsBinOpts = [{string, as_binary} | Opts],
@@ -218,6 +230,7 @@ new_spec_string_test_() ->
         ]}
     ].
 
+-spec str_validation_test_() -> _.
 str_validation_test_() ->
     String = unicode:characters_to_binary("абвгдеёжзийклмнопрстуфхцчшщъыьэюя"),
     N = 16,
@@ -238,6 +251,7 @@ str_validation_test_() ->
         ]}
     ].
 
+-spec enable_str_test() -> _.
 enable_str_test() ->
     ?assertEqual(<<2#101:3, 7:5,  "saitama">>, pack(<<"saitama">>, [{spec, old}])),
     %% binary becomes str8 as_binary
@@ -245,16 +259,19 @@ enable_str_test() ->
 
 %%
 
+-spec incomplete_test() -> _.
 incomplete_test() ->
     Term = test_utils:test_data(),
     Bin = pack(Term),
     test_incomplete(0, Term, Bin, byte_size(Bin)).
 
+-spec continue_test() -> _.
 continue_test() ->
     Term = test_utils:test_data(),
     {continue, State} = msgpack:decode_start(<<>>, []),
     test_continue(Term, pack(Term), State).
 
+-spec unpack_stream_test() -> _.
 unpack_stream_test() ->
     Term = test_utils:test_data(),
     Bin = binary:copy(pack(Term), 3),
